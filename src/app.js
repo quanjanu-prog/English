@@ -131,6 +131,12 @@ const H = {
   candoMark: t => { const i = t.dataset.i; S.cando[i] = S.cando[i] ? null : todayISO(); save(); rerender(); }
 };
 Object.assign(H, ADMIN_H, AUTH_H);
+Object.assign(H, {
+  recStart: t => recStart(t.dataset.k),
+  recStop: () => recStop(),
+  recCompare: t => recCompare(t.dataset.k, t.dataset.t)
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && REC.mr) recStop(); });
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-a]'); if (!t) return;
   const a = t.dataset.a;
@@ -162,7 +168,7 @@ document.addEventListener('change', e => {
   else if (c === 'lesson') { ui.lesson = t.value; const L = LISTEN.find(x => x.id === ui.lesson); setLast('listening', 'Nghe · ' + L.title, { listenTab: ui.listenTab, lesson: ui.lesson }); rerender(); }
   else if (c === 'rec') { const f = t.files && t.files[0]; if (!f) return; if (ui.rec[t.dataset.k]) URL.revokeObjectURL(ui.rec[t.dataset.k]); ui.rec[t.dataset.k] = URL.createObjectURL(f); logAct(); rerender(); }
 });
-window.addEventListener('hashchange', () => { ui.editId = null; if (curRoute() !== 'planner') ui.week = ui.week; window.scrollTo(0, 0); route(); });
+window.addEventListener('hashchange', () => { if (REC.mr) recStop(); ui.editId = null; if (curRoute() !== 'planner') ui.week = ui.week; window.scrollTo(0, 0); route(); });
 
 /* ===== Khởi động ===== */
 function startLocal() {

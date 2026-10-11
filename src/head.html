@@ -83,6 +83,12 @@ main{max-width:1180px;margin:0 auto;padding:24px 16px 64px}
 .btn.sm{padding:4px 9px;font-size:.8rem}
 .btn.danger{color:var(--crit);border-color:var(--crit)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
+.rec-box.live{border-color:var(--crit-line);background:var(--crit-soft)}
+.rec-dot{width:9px;height:9px;border-radius:50%;background:var(--crit);animation:recblink 1s infinite}
+@keyframes recblink{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.rec-dot{animation:none}}
+.rec-meter{flex:1;min-width:60px;height:6px;border-radius:3px;background:var(--surface);overflow:hidden}
+.rec-meter i{display:block;height:100%;width:0;background:var(--crit);transition:width .08s}
 .play{width:30px;height:30px;border-radius:50%;border:1px solid var(--line-2);background:var(--surface);display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;color:var(--fg)}
 .play:hover{border-color:var(--accent);color:var(--accent)}
 .play svg{width:14px;height:14px}

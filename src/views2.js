@@ -9,11 +9,91 @@ function viewPron() {
   h += ({ library: pronLibrary, pairs: pronPairs, stress: pronStress, ending: pronEnding, studio: pronStudio, review: pronReview }[ui.pronTab])();
   return h;
 }
+/* Ghi âm trực tiếp bằng micro máy tính / điện thoại (MediaRecorder) */
+const REC = { key: null, mr: null, stream: null, chunks: [], t0: 0, tick: null, ctx: null, raf: 0, mime: '' };
+const REC_MAX = 90;
+const recSupported = () => !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+function recPickMime() {
+  for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch {} }
+  return '';
+}
+function recMicOff() {
+  if (REC.stream) REC.stream.getTracks().forEach(t => t.stop());
+  REC.stream = null; clearInterval(REC.tick); REC.tick = null; cancelAnimationFrame(REC.raf);
+  if (REC.ctx) { try { REC.ctx.close(); } catch {} REC.ctx = null; }
+}
+function recErrMsg(err) {
+  const n = err && err.name;
+  if (n === 'NotAllowedError' || n === 'SecurityError') return 'Micro đang bị chặn. Bấm biểu tượng ổ khoá cạnh địa chỉ web, chọn Cho phép (Allow) micro, rồi tải lại trang.';
+  if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'Không tìm thấy micro. Hãy cắm tai nghe có mic hoặc kiểm tra micro trong cài đặt âm thanh của máy.';
+  if (n === 'NotReadableError' || n === 'AbortError') return 'Micro đang bị ứng dụng khác dùng (Zoom, Meet...). Hãy tắt ứng dụng đó rồi thử lại.';
+  return 'Không bật được micro. Hãy thử lại hoặc dùng nút Chọn file.';
+}
+async function recStart(key) {
+  if (REC.mr) recStop();
+  if (!recSupported()) { toast('Trình duyệt này chưa ghi âm trực tiếp được. Hãy dùng Chrome/Edge bản mới hoặc nút Chọn file.'); return; }
+  try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch {}
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+  catch (err) { ui.recErr = Object.assign({}, ui.recErr, { [key]: recErrMsg(err) }); rerender(); return; }
+  const mime = recPickMime();
+  let mr;
+  try { mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+  catch { stream.getTracks().forEach(t => t.stop()); toast('Không khởi động được trình ghi âm.'); return; }
+  Object.assign(REC, { key, mr, stream, chunks: [], t0: Date.now(), mime: mr.mimeType || mime });
+  if (ui.recErr) delete ui.recErr[key];
+  mr.ondataavailable = e => { if (e.data && e.data.size) REC.chunks.push(e.data); };
+  mr.onstop = () => {
+    const k = REC.key, blob = new Blob(REC.chunks, { type: REC.mime || 'audio/webm' });
+    Object.assign(REC, { key: null, mr: null, chunks: [] });
+    recMicOff();
+    if (blob.size) { if (ui.rec[k]) URL.revokeObjectURL(ui.rec[k]); ui.rec[k] = URL.createObjectURL(blob); logAct(); }
+    else toast('Không thu được âm thanh. Hãy kiểm tra micro rồi thử lại.');
+    rerender();
+  };
+  mr.start(250);
+  REC.tick = setInterval(() => {
+    const s = Math.floor((Date.now() - REC.t0) / 1000), el = document.getElementById('recTime');
+    if (el) el.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    if (s >= REC_MAX) { recStop(); toast('Đã tự dừng sau ' + REC_MAX + ' giây.'); }
+  }, 250);
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext; REC.ctx = new AC(); if (REC.ctx.state === "suspended") REC.ctx.resume().catch(() => {});
+    const an = REC.ctx.createAnalyser(); an.fftSize = 512; REC.ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    const loop = () => { an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); const el = document.getElementById('recLvl'); if (el) el.style.width = Math.min(100, m / 0.9) + '%'; REC.raf = requestAnimationFrame(loop); };
+    loop();
+  } catch {}
+  rerender();
+}
+function recStop() { if (REC.mr && REC.mr.state !== 'inactive') REC.mr.stop(); else recMicOff(); }
+function recCompare(key, model) {
+  const url = ui.rec[key]; if (!url) return;
+  const a = document.querySelector('audio[data-rk="' + CSS.escape(key) + '"]');
+  const playMine = () => { if (a) { a.currentTime = 0; a.play().catch(() => {}); } };
+  if (!model || !('speechSynthesis' in window)) { playMine(); return; }
+  try {
+    speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(model); const v = pickVoice();
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = S?.prefs?.accent === 'uk' ? 'en-GB' : 'en-US';
+    u.rate = 0.85; u.onend = () => setTimeout(playMine, 400); speechSynthesis.speak(u);
+  } catch { playMine(); }
+}
 function recorder(key, model) {
-  const url = ui.rec[key];
-  return '<div class="card flat"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b class="small">Ghi âm và so sánh</b>' + (model ? '<div class="row"><span class="tiny muted">Âm mẫu</span>' + playBtn(model, 0.8) + playBtn(model, 1) + '</div>' : '') + '</div>' +
-    '<label class="btn" for="rec-' + esc(key) + '">Ghi âm hoặc chọn file</label><input type="file" id="rec-' + esc(key) + '" accept="audio/*" capture="user" data-c="rec" data-k="' + esc(key) + '" hidden>' +
-    (url ? '<audio controls src="' + url + '" style="width:100%;margin-top:10px"></audio>' : '<p class="tiny muted" style="margin-top:8px">Trên điện thoại, nút này mở trình ghi âm. Trên máy tính, chọn file ghi âm có sẵn. Bản ghi chỉ phát lại trong phiên này, không tải lên đâu cả.</p>') + '</div>';
+  const url = ui.rec[key], live = REC.key === key && REC.mr, busy = REC.mr && !live;
+  const err = ui.recErr && ui.recErr[key], k = esc(key);
+  const file = '<label class="btn ghost sm" for="rec-' + k + '">Chọn file</label><input type="file" id="rec-' + k + '" accept="audio/*" data-c="rec" data-k="' + k + '" hidden>';
+  let h = '<div class="card flat rec-box' + (live ? ' live' : '') + '"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b class="small">Ghi âm và so sánh</b>' + (model ? '<div class="row"><span class="tiny muted">Âm mẫu</span>' + playBtn(model, 0.8) + playBtn(model, 1) + '</div>' : '') + '</div>';
+  if (live) {
+    h += '<div class="row" style="gap:10px;align-items:center"><button class="btn danger" data-a="recStop">' + '<span class="rec-dot"></span>Dừng ghi · tắt mic</button><span class="mono-num small" id="recTime">0:00</span><div class="rec-meter" aria-hidden="true"><i id="recLvl"></i></div></div>' +
+      '<p class="tiny muted" style="margin-top:8px">Micro đang bật. Đọc to, rõ rồi bấm Dừng. Mic tự tắt sau ' + REC_MAX + ' giây hoặc khi chuyển trang.</p>';
+  } else {
+    h += '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn pri" data-a="recStart" data-k="' + k + '"' + (busy ? ' disabled' : '') + '>' + ICON.mic + (url ? ' Ghi lại' : ' Bật mic và ghi âm') + '</button>' +
+      (url && model ? '<button class="btn" data-a="recCompare" data-k="' + k + '" data-t="' + esc(model) + '">Nghe mẫu rồi nghe mình</button>' : '') + file + '</div>';
+    if (err) h += '<div class="alert crit" style="margin-top:10px"><span class="ic">!</span><div class="bd small">' + esc(err) + '</div></div>';
+    h += url ? '<audio controls data-rk="' + k + '" src="' + url + '" style="width:100%;margin-top:10px"></audio>'
+      : '<p class="tiny muted" style="margin-top:8px">' + (recSupported() ? 'Lần đầu, trình duyệt sẽ hỏi quyền dùng micro: chọn Cho phép. ' : 'Trình duyệt này chưa ghi âm trực tiếp được, hãy dùng Chọn file. ') + 'Bản ghi chỉ phát lại trong phiên này, không tải lên đâu cả.</p>';
+  }
+  return h + '</div>';
 }
 function pronLibrary() {
   const s = SOUNDS.find(x => x.sym === ui.sound) || SOUNDS[0], rec = S.sounds[s.sym] || {};
